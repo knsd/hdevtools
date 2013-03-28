@@ -62,6 +62,7 @@ executable hdevtools
                        directory,
                        ghc >= 7.2,
                        ghc-paths,
+                       Cabal,
                        syb,
                        network,
                        time,

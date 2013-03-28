@@ -42,22 +42,26 @@ data HDevTools
     | Check
         { socket :: Maybe FilePath
         , ghcOpts :: [String]
+        , executable :: Maybe String
         , file :: String
         }
     | ModuleFile
         { socket :: Maybe FilePath
         , ghcOpts :: [String]
+        , executable :: Maybe String
         , module_ :: String
         }
     | Info
         { socket :: Maybe FilePath
         , ghcOpts :: [String]
+        , executable :: Maybe String
         , file :: String
         , identifier :: String
         }
     | Type
         { socket :: Maybe FilePath
         , ghcOpts :: [String]
+        , executable :: Maybe String
         , file :: String
         , line :: Int
         , col :: Int
@@ -77,6 +81,7 @@ dummyCheck :: HDevTools
 dummyCheck = Check
     { socket = Nothing
     , ghcOpts = []
+    , executable = Nothing
     , file = ""
     }
 
@@ -84,6 +89,7 @@ dummyModuleFile :: HDevTools
 dummyModuleFile = ModuleFile
     { socket = Nothing
     , ghcOpts = []
+    , executable = Nothing
     , module_ = ""
     }
 
@@ -91,6 +97,7 @@ dummyInfo :: HDevTools
 dummyInfo = Info
     { socket = Nothing
     , ghcOpts = []
+    , executable = Nothing
     , file = ""
     , identifier = ""
     }
@@ -99,6 +106,7 @@ dummyType :: HDevTools
 dummyType = Type
     { socket = Nothing
     , ghcOpts = []
+    , executable = Nothing
     , file = ""
     , line = 0
     , col = 0
@@ -117,6 +125,7 @@ check :: Annotate Ann
 check = record dummyCheck
     [ socket   := def += typFile += help "socket file to use"
     , ghcOpts  := def += typ "OPTION"   += help "ghc options"
+    , executable := def += typ "EXECUTABLE"   += help "Executable name from .cabal"
     , file     := def += typFile      += argPos 0 += opt ""
     ] += help "Check a haskell source file for errors and warnings"
 
@@ -124,6 +133,7 @@ moduleFile :: Annotate Ann
 moduleFile = record dummyModuleFile
     [ socket   := def += typFile += help "socket file to use"
     , ghcOpts  := def += typ "OPTION" += help "ghc options"
+    , executable := def += typ "EXECUTABLE"   += help "Executable name from .cabal"
     , module_  := def += typ "MODULE" += argPos 0
     ] += help "Get the haskell source file corresponding to a module name"
 
@@ -131,6 +141,7 @@ info :: Annotate Ann
 info = record dummyInfo
     [ socket     := def += typFile += help "socket file to use"
     , ghcOpts    := def += typ "OPTION" += help "ghc options"
+    , executable := def += typ "EXECUTABLE"   += help "Executable name from .cabal"
     , file       := def += typFile      += argPos 0 += opt ""
     , identifier := def += typ "IDENTIFIER" += argPos 1
     ] += help "Get info from GHC about the specified identifier"
@@ -139,6 +150,7 @@ type_ :: Annotate Ann
 type_ = record dummyType
     [ socket   := def += typFile += help "socket file to use"
     , ghcOpts  := def += typ "OPTION" += help "ghc options"
+    , executable := def += typ "EXECUTABLE"   += help "Executable name from .cabal"
     , file     := def += typFile      += argPos 0 += opt ""
     , line     := def += typ "LINE"   += argPos 1
     , col      := def += typ "COLUMN" += argPos 2
