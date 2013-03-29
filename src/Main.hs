@@ -3,7 +3,7 @@ module Main where
 import System.Environment (getProgName)
 import System.IO (hPutStrLn, stderr)
 
-import Cabal (getExecutableOptions)
+import Cabal (Component(..), getComponentOptions)
 import Client (getServerStatus, serverCommand, stopServer)
 import CommandArgs
 import Daemonize (daemonize)
@@ -55,7 +55,7 @@ doFileCommand cmdName cmd sock args
     | otherwise = do
         cabalOpts <- case (executable args) of
             Nothing -> return []
-            Just exec -> getExecutableOptions $ exec
+            Just exec -> getComponentOptions $ ComponentExecutable exec
         let opts = (ghcOpts args) ++ cabalOpts
         print opts
         serverCommand sock (cmd args) opts

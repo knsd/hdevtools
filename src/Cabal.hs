@@ -1,8 +1,11 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Cabal
-    ( getExecutableOptions
+    ( Component(..)
+    , getComponentOptions
     ) where
 
 import Data.Maybe (listToMaybe, fromMaybe, catMaybes)
@@ -11,7 +14,7 @@ import Data.Monoid (mempty)
 import Control.Monad.State (MonadState, State, execState, modify)
 import Distribution.Compiler (CompilerFlavor(GHC))
 import Distribution.PackageDescription (PackageDescription(..), BuildInfo(..),
-                                        Executable(exeName))
+                                        Executable(exeName), Library(libBuildInfo))
 import Distribution.Simple.Compiler (PackageDB(GlobalPackageDB))
 import Distribution.Simple.Configure (getPersistBuildConfig)
 import Distribution.Simple.LocalBuildInfo (LocalBuildInfo(..))
@@ -21,14 +24,27 @@ import Distribution.Version (Version(..))
 import Language.Haskell.Extension (Language(Haskell98))
 import qualified Distribution.PackageDescription
 
+data Any c = forall a. c a => Lift a
+
 newtype Cabal a = Cabal (State GhcOptions a)
     deriving (Functor, Monad, MonadState GhcOptions)
+
+type Name = String
+
+data Component = ComponentLibrary
+               | ComponentExecutable Name
 
 class HasBuildInfo a where
     buildInfo :: a -> BuildInfo
 
 instance HasBuildInfo Executable where
     buildInfo = Distribution.PackageDescription.buildInfo
+
+instance HasBuildInfo Library where
+    buildInfo = libBuildInfo
+
+instance HasBuildInfo (Any HasBuildInfo) where
+    buildInfo (Lift x) = buildInfo x
 
 execCabal :: Cabal a -> GhcOptions
 execCabal (Cabal f) = execState f mempty
@@ -58,23 +74,27 @@ addPackageDbs lbi = modify $ \f -> f { ghcOptPackageDBs = dbs }
   where
     dbs = GlobalPackageDB : (catMaybes $ configPackageDBs $ configFlags lbi)
 
-addExecutableOptions :: String -> LocalBuildInfo -> Cabal ()
-addExecutableOptions name lbi = do
+addComponentOptions :: LocalBuildInfo -> (LocalBuildInfo -> Any HasBuildInfo) -> Cabal ()
+addComponentOptions lbi getComp = let comp = getComp lbi in do
     addPackageDbs lbi
-    addLanguage exec
-    addExtensions exec
-    addSourceDirs exec
-    addGhcOptions exec
+    addLanguage comp
+    addExtensions comp
+    addSourceDirs comp
+    addGhcOptions comp
+
+getComponent :: Component -> LocalBuildInfo -> Any HasBuildInfo
+getComponent ComponentLibrary = Lift . fromMaybe notFound . library . localPkgDescr
+  where
+    notFound = error "Library not found"
+getComponent (ComponentExecutable name) = Lift .  fromMaybe notFound . listToMaybe .
+    filter ((name ==) . exeName) . executables . localPkgDescr
   where
     notFound = error $ "Executable " ++ name ++ " not found"
-    mbExec = listToMaybe $ filter ((name ==) . exeName) $ executables descr
-    exec = fromMaybe notFound mbExec
-    descr = localPkgDescr lbi
 
-getExecutableOptions :: String -> IO [String]
-getExecutableOptions name = do
+getComponentOptions :: Component -> IO [String]
+getComponentOptions component = do
     buildConfig <- getPersistBuildConfig "dist"
     return $ renderGhcOptions version $ execCabal $
-        addExecutableOptions name buildConfig
+        addComponentOptions buildConfig $ getComponent component
   where
     version = Version [7, 6, 1] []
