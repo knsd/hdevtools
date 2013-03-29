@@ -1,12 +1,14 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Cabal
     ( getExecutableOptions
     ) where
 
-import Data.Maybe (listToMaybe, maybeToList, fromMaybe, catMaybes)
+import Data.Maybe (listToMaybe, fromMaybe, catMaybes)
 import Data.Monoid (mempty)
 
+import Control.Monad.State (MonadState, State, execState, modify)
 import Distribution.Compiler (CompilerFlavor(GHC))
 import Distribution.PackageDescription (PackageDescription(..), BuildInfo(..),
                                         Executable(exeName))
@@ -14,11 +16,13 @@ import Distribution.Simple.Compiler (PackageDB(GlobalPackageDB))
 import Distribution.Simple.Configure (getPersistBuildConfig)
 import Distribution.Simple.LocalBuildInfo (LocalBuildInfo(..))
 import Distribution.Simple.Program.GHC (GhcOptions(..), renderGhcOptions)
-import Distribution.Simple.Setup (ConfigFlags(..))
-import Distribution.Text (Text, display)
+import Distribution.Simple.Setup (ConfigFlags(..), toFlag)
 import Distribution.Version (Version(..))
-import Language.Haskell.Extension (Language, Extension)
+import Language.Haskell.Extension (Language(Haskell98))
 import qualified Distribution.PackageDescription
+
+newtype Cabal a = Cabal (State GhcOptions a)
+    deriving (Functor, Monad, MonadState GhcOptions)
 
 class HasBuildInfo a where
     buildInfo :: a -> BuildInfo
@@ -26,46 +30,51 @@ class HasBuildInfo a where
 instance HasBuildInfo Executable where
     buildInfo = Distribution.PackageDescription.buildInfo
 
-getExtensions :: HasBuildInfo a => a -> [Extension]
-getExtensions = defaultExtensions . buildInfo
+execCabal :: Cabal a -> GhcOptions
+execCabal (Cabal f) = execState f mempty
 
-getSourceDirs :: HasBuildInfo a => a -> [FilePath]
-getSourceDirs = hsSourceDirs . buildInfo
+addExtensions :: HasBuildInfo a => a -> Cabal ()
+addExtensions bi = modify $ \f -> f { ghcOptExtensions = defaultExtensions $ buildInfo bi }
 
-getGhcOptions :: HasBuildInfo a => a -> [String]
-getGhcOptions = go . options . buildInfo
+addSourceDirs :: HasBuildInfo a => a -> Cabal ()
+addSourceDirs bi = modify $ \f -> f { ghcOptSourcePath = hsSourceDirs $ buildInfo bi }
+
+addGhcOptions :: HasBuildInfo a => a -> Cabal ()
+addGhcOptions bi = modify $ \f -> f { ghcOptExtra = extraOpts }
   where
+    extraOpts = go $ options $ buildInfo bi
     go ((GHC, opts): xs) = opts ++ go xs
     go (_:xs) = go xs
     go [] = []
 
-getLanguage :: HasBuildInfo a => a -> Maybe Language
-getLanguage = defaultLanguage . buildInfo
-
-getOptions :: HasBuildInfo a => a -> [String]
-getOptions x = concat [extensions, sourceDirs, ghcOptions, language]
+addLanguage :: HasBuildInfo a => a -> Cabal ()
+addLanguage bi = modify $ \f -> f { ghcOptLanguage = langFlag }
   where
-    mkExt :: Text a => a -> String
-    mkExt = ("-X" ++) . display
-    extensions = map mkExt $ getExtensions x
-    language = map mkExt $ maybeToList $ getLanguage x
-    sourceDirs = map ("-i" ++) $ getSourceDirs x
-    ghcOptions = getGhcOptions x
+    lang = fromMaybe Haskell98 $ defaultLanguage $ buildInfo bi
+    langFlag = toFlag lang
 
-executableOptions :: String -> PackageDescription ->[String]
-executableOptions name descr = getOptions executable
+addPackageDbs :: LocalBuildInfo -> Cabal ()
+addPackageDbs lbi = modify $ \f -> f { ghcOptPackageDBs = dbs }
   where
-    executable = fromMaybe (error notFound) $ listToMaybe $
-        filter ((name ==) . exeName) $ executables descr
-    notFound = "Executable " ++ name ++ " not found"
+    dbs = GlobalPackageDB : (catMaybes $ configPackageDBs $ configFlags lbi)
+
+addExecutableOptions :: String -> LocalBuildInfo -> Cabal ()
+addExecutableOptions name lbi = do
+    addPackageDbs lbi
+    addLanguage exec
+    addExtensions exec
+    addSourceDirs exec
+    addGhcOptions exec
+  where
+    notFound = error $ "Executable " ++ name ++ " not found"
+    mbExec = listToMaybe $ filter ((name ==) . exeName) $ executables descr
+    exec = fromMaybe notFound mbExec
+    descr = localPkgDescr lbi
 
 getExecutableOptions :: String -> IO [String]
 getExecutableOptions name = do
     buildConfig <- getPersistBuildConfig "dist"
-    let flags = configFlags buildConfig
-    let dbs = GlobalPackageDB : (catMaybes $ configPackageDBs flags)
-    let ghcOptions = mempty { ghcOptPackageDBs = dbs }
-    let rendered = renderGhcOptions version ghcOptions
-    return $ rendered ++ (executableOptions name $ localPkgDescr buildConfig)
+    return $ renderGhcOptions version $ execCabal $
+        addExecutableOptions name buildConfig
   where
     version = Version [7, 6, 1] []
