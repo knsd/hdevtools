@@ -15,7 +15,7 @@ import Control.Monad.State (MonadState, State, execState, modify)
 import Distribution.Compiler (CompilerFlavor(GHC))
 import Distribution.PackageDescription (PackageDescription(..), BuildInfo(..),
                                         Executable(exeName), Library(libBuildInfo))
-import Distribution.Simple.Compiler (PackageDB(GlobalPackageDB))
+import Distribution.Simple.Compiler (Compiler(compilerExtensions), PackageDB(GlobalPackageDB))
 import Distribution.Simple.Configure (getPersistBuildConfig)
 import Distribution.Simple.LocalBuildInfo (LocalBuildInfo(..))
 import Distribution.Simple.Program.GHC (GhcOptions(..), renderGhcOptions)
@@ -74,9 +74,13 @@ addPackageDbs lbi = modify $ \f -> f { ghcOptPackageDBs = dbs }
   where
     dbs = GlobalPackageDB : (catMaybes $ configPackageDBs $ configFlags lbi)
 
+addExtensionMap :: LocalBuildInfo -> Cabal ()
+addExtensionMap lbi = modify $ \f -> f { ghcOptExtensionMap = compilerExtensions $ compiler lbi }
+
 addComponentOptions :: LocalBuildInfo -> (LocalBuildInfo -> Any HasBuildInfo) -> Cabal ()
 addComponentOptions lbi getComp = let comp = getComp lbi in do
     addPackageDbs lbi
+    addExtensionMap lbi
     addLanguage comp
     addExtensions comp
     addSourceDirs comp
